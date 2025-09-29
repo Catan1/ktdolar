@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dólar Argentina - Histórico</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #7f8c8d;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            transition: transform 0.3s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-bottom: 30px;
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 15px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s;
+        }
+
+        .btn:hover {
+            background: #764ba2;
+            transform: scale(1.05);
+        }
+
+        .btn.active {
+            background: #764ba2;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+        }
+
+        .footer {
+            text-align: center;
+            color: #7f8c8d;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ecf0f1;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .container {
+            animation: fadeIn 0.6s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>💵 Cotización del Dólar en Argentina</h1>
+        <p class="subtitle">Datos históricos oficiales del Banco Central (BCRA)</p>
+
+        <div class="stats" id="stats">
+            <div class="stat-card">
+                <div class="stat-label">Valor Actual</div>
+                <div class="stat-value" id="valorActual">$--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Máximo del Año</div>
+                <div class="stat-value" id="valorMax">$--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Mínimo del Año</div>
+                <div class="stat-value" id="valorMin">$--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Variación Anual</div>
+                <div class="stat-value" id="variacion">--%</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn active" onclick="cambiarPeriodo(30)">1 Mes</button>
+            <button class="btn" onclick="cambiarPeriodo(90)">3 Meses</button>
+            <button class="btn" onclick="cambiarPeriodo(180)">6 Meses</button>
+            <button class="btn" onclick="cambiarPeriodo(365)">1 Año</button>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="chartDolar"></canvas>
+        </div>
+
+        <div class="footer">
+            <p>Fuente: Banco Central de la República Argentina (BCRA)</p>
+            <p>Actualización: <span id="fecha"></span></p>
+        </div>
+    </div>
+
+    <script>
+        let chartInstance = null;
+        let datosCompletos = [];
+        let periodoActual = 365;
+
+        // Función para obtener datos de la API
+        async function obtenerDatos() {
+            try {
+                const url = 'https://apis.datos.gob.ar/series/api/series';
+                const params = new URLSearchParams({
+                    ids: '168.1_T_CAMBIOR_D_0_0_26',
+                    limit: '5000',
+                    format: 'json'
+                });
+
+                const response = await fetch(`${url}?${params}`);
+                const data = await response.json();
+
+                if (data.data && data.data.length > 0) {
+                    datosCompletos = data.data.map(item => ({
+                        fecha: new Date(item[0]),
+                        valor: parseFloat(item[1])
+                    })).filter(item => !isNaN(item.valor)).sort((a, b) => a.fecha - b.fecha);
+
+                    actualizarEstadisticas();
+                    crearGrafico();
+                }
+            } catch (error) {
+                console.error('Error al obtener datos:', error);
+                document.getElementById('stats').innerHTML = '<div class="loading">Error al cargar los datos. Por favor, intenta más tarde.</div>';
+            }
+        }
+
+        function filtrarDatos(dias) {
+            const fechaLimite = new Date();
+            fechaLimite.setDate(fechaLimite.getDate() - dias);
+            return datosCompletos.filter(item => item.fecha >= fechaLimite);
+        }
+
+        function actualizarEstadisticas() {
+            const datosFiltrados = filtrarDatos(365);
+            
+            if (datosFiltrados.length === 0) return;
+
+            const valorActual = datosFiltrados[datosFiltrados.length - 1].valor;
+            const valorInicial = datosFiltrados[0].valor;
+            const valores = datosFiltrados.map(d => d.valor);
+            const valorMax = Math.max(...valores);
+            const valorMin = Math.min(...valores);
+            const variacion = ((valorActual / valorInicial - 1) * 100).toFixed(2);
+
+            document.getElementById('valorActual').textContent = `$${valorActual.toFixed(2)}`;
+            document.getElementById('valorMax').textContent = `$${valorMax.toFixed(2)}`;
+            document.getElementById('valorMin').textContent = `$${valorMin.toFixed(2)}`;
+            document.getElementById('variacion').textContent = `${variacion}%`;
+            document.getElementById('variacion').style.color = variacion >= 0 ? '#e74c3c' : '#27ae60';
+            document.getElementById('fecha').textContent = new Date().toLocaleString('es-AR');
+        }
+
+        function crearGrafico() {
+            const datosFiltrados = filtrarDatos(periodoActual);
+            const ctx = document.getElementById('chartDolar').getContext('2d');
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            const labels = datosFiltrados.map(d => d.fecha.toLocaleDateString('es-AR'));
+            const valores = datosFiltrados.map(d => d.valor);
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'USD/ARS',
+                        data: valores,
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 2,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return `Valor: $${context.parsed.y.toFixed(2)} ARS`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            ticks: {
+                                maxTicksLimit: 10
+                            }
+                        },
+                        y: {
+                            display: true,
+                            beginAtZero: false,
+                            ticks: {
+                                callback: function(value) {
+                                    return '$' + value.toFixed(2);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function cambiarPeriodo(dias) {
+            periodoActual = dias;
+            
+            // Actualizar botones
+            document.querySelectorAll('.btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            crearGrafico();
+        }
+
+        // Cargar datos al iniciar
+        obtenerDatos();
+
+        // Actualizar cada 5 minutos
+        setInterval(obtenerDatos, 300000);
+    </script>
+</body>
+</html>
